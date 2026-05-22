@@ -11,14 +11,21 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings("ignore")
 
+from nepse_fetcher import get_nepse_price, get_nepse_history, is_nepse_ticker
+
 
 # ── Data fetcher ──────────────────────────────────────────────────────────────
 
 def fetch_data(ticker: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame | None:
     """
-    Fetch OHLCV data from Yahoo Finance.
+    Fetch OHLCV data — auto-detects NEPSE vs global stocks.
     Returns a cleaned DataFrame or None on failure.
     """
+    # NEPSE stocks
+    if is_nepse_ticker(ticker):
+        return get_nepse_history(ticker.replace(".NP", ""), days=90)
+
+    # Global stocks via yfinance
     try:
         stock = yf.Ticker(ticker)
         df = stock.history(period=period, interval=interval)
@@ -34,7 +41,13 @@ def fetch_data(ticker: str, period: str = "3mo", interval: str = "1d") -> pd.Dat
 
 
 def get_current_price(ticker: str) -> dict | None:
-    """Get the latest price info for a ticker."""
+    """Get the latest price — auto-detects NEPSE vs global."""
+
+    # NEPSE stocks
+    if is_nepse_ticker(ticker):
+        return get_nepse_price(ticker)
+
+    # Global stocks via yfinance
     try:
         stock = yf.Ticker(ticker)
         info  = stock.fast_info
