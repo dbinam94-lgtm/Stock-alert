@@ -86,7 +86,7 @@ with st.sidebar:
     
     page = st.radio(
         "Navigation",
-        ["🏠 Dashboard", "➕ Add Stock", "📊 Deep Analysis", "🔔 Alert History", "⚙️ Settings"],
+        ["🏠 Dashboard", "➕ Add Stock", "📊 Deep Analysis", "🔔 Alert History", "📋 Market Close", "⚙️ Settings"],
         label_visibility="collapsed",
     )
     
@@ -399,6 +399,124 @@ elif page == "🔔 Alert History":
     display_cols = ["created_at", "ticker", "alert_type", "signal", "price", "sent"]
     styled = df[display_cols].style.applymap(colour_signal, subset=["signal"])
     st.dataframe(styled, hide_index=True, use_container_width=True)
+
+
+# ── MARKET CLOSE SUMMARY ──────────────────────────────────────────────────────
+
+elif page == "📋 Market Close":
+    st.title("📋 Market Close Summary")
+    st.caption("Closing prices and AI signals for all your NEPSE stocks")
+
+    import pytz
+    npt        = pytz.timezone("Asia/Kathmandu")
+    now_npt    = datetime.now(npt)
+    market_closed = now_npt.hour >= 15 or now_npt.hour < 11
+
+    if market_closed:
+        st.success("🔴 NEPSE Market is CLOSED — Showing last closing prices")
+    else:
+        st.warning("🟢 NEPSE Market is OPEN (11 AM – 3 PM) — Prices updating live")
+
+    watchlist = get_watchlist()
+    if not watchlist:
+        st.info("Add stocks first from ➕ Add Stock")
+        st.stop()
+
+    # ── Fetch closing prices for all stocks ───────────────────────────────
+    st.subheader("📊 Today's Closing Summary")
+
+    rows = []
+    progress = st.progress(0, text="Fetching closing prices...")
+
+    for i, stock in enumerate(watchlist):
+        ticker = stock["ticker"]
+        progress.progress((i + 1) / len(watchlist), text=f"Fetching {ticker}...")
+
+        try:
+            result = analyze_stock(stock)
+            if result:
+                price     = result["price"]
+                change    = result["change_pct"]
+                signal    = result["signal"]
+                rsi       = result["rsi"]
+                buy_p     = stock["buy_price"]
+                sell_p    = stock["sell_price"]
+                stop_p    = stock["stop_loss"]
+
+                # Decision
+                if price <= buy_p * 1.01:
+                    action = "🟢 BUY"
+                elif price >= sell_p * 0.99:
+                    action = "🔴 SELL"
+                elif price <= stop_p * 1.02:
+                    action = "⛔ STOP LOSS"
+                else:
+                    action = "⏸️ HOLD"
+
+                rows.append({
+                    "Company":      stock["company"],
+                    "Ticker":       ticker,
+                    "Close Price":  f"NPR {price:,.2f}",
+                    "Change":       f"{change:+.2f}%",
+                    "RSI":          rsi,
+                    "AI Signal":    signal,
+                    "Action":       action,
+                    "Buy Target":   f"NPR {buy_p:,.2f}",
+                    "Sell Target":  f"NPR {sell_p:,.2f}",
+                })
+        except Exception as e:
+            rows.append({
+                "Company": stock["company"],
+                "Ticker":  ticker,
+                "Close Price": "—",
+                "Change": "—",
+                "RSI": "—",
+                "AI Signal": "Error",
+                "Action": "—",
+                "Buy Target": f"NPR {stock['buy_price']:,.2f}",
+                "Sell Target": f"NPR {stock['sell_price']:,.2f}",
+            })
+
+    progress.empty()
+
+    if rows:
+        df = pd.DataFrame(rows)
+        st.dataframe(df, hide_index=True, use_container_width=True)
+
+        # ── Summary counts ─────────────────────────────────────────────
+        st.divider()
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Stocks",  len(rows))
+        c2.metric("🟢 BUY",   sum(1 for r in rows if "BUY"  in r["Action"]))
+        c3.metric("🔴 SELL",  sum(1 for r in rows if "SELL" in r["Action"]))
+        c4.metric("⏸️ HOLD",  sum(1 for r in rows if "HOLD" in r["Action"]))
+
+        # ── Send WhatsApp summary ──────────────────────────────────────
+        st.divider()
+        st.subheader("📲 Send Close Summary to WhatsApp")
+
+        if st.button("📲 Send Market Close Summary to WhatsApp", use_container_width=True):
+            from alerts import send_whatsapp
+            lines = [f"📊 *NEPSE Market Close Summary*",
+                     f"🕒 {now_npt.strftime('%Y-%m-%d %H:%M')} NPT\n"]
+            for r in rows:
+                lines.append(
+                    f"{r['Ticker']}: {r['Close Price']} ({r['Change']}) — {r['Action']}"
+                )
+            lines.append("\n_AI Stock Monitor_")
+            msg  = "\n".join(lines)
+            sent = send_whatsapp(msg)
+            if sent:
+                st.success("✅ Summary sent to WhatsApp!")
+            else:
+                st.warning("Twilio not configured. Summary printed below:")
+                st.code(msg)
+
+        # ── Auto-schedule note ─────────────────────────────────────────
+        st.info(
+            "💡 **Tip:** To receive this summary automatically at 3:15 PM every day, "
+            "complete the Twilio setup in ⚙️ Settings."
+        )
 
 
 # ── SETTINGS ──────────────────────────────────────────────────────────────────
