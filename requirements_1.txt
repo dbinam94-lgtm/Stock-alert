@@ -1,0 +1,15 @@
+yfinance
+pandas
+numpy
+ta
+matplotlib
+plotly
+schedule
+requests
+streamlit
+twilio
+python-dotenv
+SQLAlchemy
+apscheduler
+pytz
+beautifulsoup4
